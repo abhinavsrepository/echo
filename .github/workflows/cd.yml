@@ -1,0 +1,268 @@
+name: CD
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+
+jobs:
+  docker-build:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    outputs:
+      dashboard-tag: ${{ steps.meta.outputs.dashboard-tag }}
+      workers-tag: ${{ steps.meta.outputs.workers-tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Generate image metadata
+        id: meta
+        run: |
+          TAG=${{ github.sha }}
+          echo "dashboard-tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "workers-tag=${TAG}" >> $GITHUB_OUTPUT
+
+      - name: Build and push Dashboard image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./ops/Dockerfile.dashboard
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/echo-dashboard:${{ steps.meta.outputs.dashboard-tag }}
+            ${{ env.ECR_REGISTRY }}/echo-dashboard:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Workers image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./ops/Dockerfile.workers
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/echo-workers:${{ steps.meta.outputs.workers-tag }}
+            ${{ env.ECR_REGISTRY }}/echo-workers:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  terraform-plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    needs: docker-build
+    env:
+      TF_WORKSPACE: ${{ github.event.inputs.environment || 'staging' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.0
+
+      - name: Terraform Init
+        working-directory: ./terraform
+        run: terraform init
+
+      - name: Terraform Plan
+        working-directory: ./terraform
+        run: |
+          terraform workspace select ${{ env.TF_WORKSPACE }} || terraform workspace new ${{ env.TF_WORKSPACE }}
+          terraform plan -var-file=environments/${{ env.TF_WORKSPACE }}.tfvars -out=tfplan
+
+      - name: Upload plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: terraform/tfplan
+
+  terraform-apply:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+    needs: [terraform-plan, docker-build]
+    environment:
+      name: ${{ github.event.inputs.environment || 'staging' }}
+    env:
+      TF_WORKSPACE: ${{ github.event.inputs.environment || 'staging' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.0
+
+      - name: Download plan
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan
+          path: terraform/
+
+      - name: Terraform Init
+        working-directory: ./terraform
+        run: terraform init
+
+      - name: Terraform Apply
+        working-directory: ./terraform
+        run: |
+          terraform workspace select ${{ env.TF_WORKSPACE }}
+          terraform apply tfplan
+
+  deploy-canary:
+    name: Deploy Canary
+    runs-on: ubuntu-latest
+    needs: [terraform-apply, docker-build]
+    if: github.event.inputs.environment == 'production' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update ECS service (10% canary)
+        run: |
+          aws ecs update-service \
+            --cluster echo-production \
+            --service echo-dashboard \
+            --task-definition echo-dashboard:${{ needs.docker-build.outputs.dashboard-tag }} \
+            --deployment-configuration "maximumPercent=200,minimumHealthyPercent=100,deploymentCircuitBreaker={enable=true,rollback=true}" \
+            --desired-count 10
+
+      - name: Wait for canary deployment
+        run: |
+          aws ecs wait services-stable \
+            --cluster echo-production \
+            --services echo-dashboard
+
+      - name: Run canary tests
+        run: |
+          chmod +x ./ops/canary.sh
+          ./ops/canary.sh ${{ secrets.CANARY_ENDPOINT }}
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          PREVIOUS_TASK_DEF=$(aws ecs describe-services \
+            --cluster echo-production \
+            --services echo-dashboard \
+            --query 'services[0].deployments[1].taskDefinition' \
+            --output text)
+
+          aws ecs update-service \
+            --cluster echo-production \
+            --service echo-dashboard \
+            --task-definition $PREVIOUS_TASK_DEF \
+            --force-new-deployment
+
+  deploy-production:
+    name: Deploy Production
+    runs-on: ubuntu-latest
+    needs: [deploy-canary, docker-build]
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Scale to full production
+        run: |
+          aws ecs update-service \
+            --cluster echo-production \
+            --service echo-dashboard \
+            --desired-count 20
+
+      - name: Update workers service
+        run: |
+          aws ecs update-service \
+            --cluster echo-production \
+            --service echo-workers \
+            --task-definition echo-workers:${{ needs.docker-build.outputs.workers-tag }} \
+            --force-new-deployment
+
+      - name: Wait for stable deployment
+        run: |
+          aws ecs wait services-stable \
+            --cluster echo-production \
+            --services echo-dashboard echo-workers
+
+  release:
+    name: Semantic Release
+    runs-on: ubuntu-latest
+    needs: deploy-production
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npx semantic-release

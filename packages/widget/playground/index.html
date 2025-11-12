@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title> Widget Playground</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .container {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      padding: 48px;
+      max-width: 800px;
+      width: 100%;
+    }
+
+    h1 {
+      font-size: 42px;
+      font-weight: 700;
+      color: #1F2937;
+      margin-bottom: 16px;
+    }
+
+    p {
+      font-size: 18px;
+      color: #6B7280;
+      margin-bottom: 32px;
+      line-height: 1.6;
+    }
+
+    .features {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 24px;
+      margin-bottom: 32px;
+    }
+
+    .feature {
+      padding: 24px;
+      background: #F9FAFB;
+      border-radius: 12px;
+      border: 2px solid #E5E7EB;
+    }
+
+    .feature h3 {
+      font-size: 18px;
+      font-weight: 600;
+      color: #1F2937;
+      margin-bottom: 8px;
+    }
+
+    .feature p {
+      font-size: 14px;
+      color: #6B7280;
+      margin: 0;
+    }
+
+    .cta {
+      text-align: center;
+      padding: 32px;
+      background: #EEF2FF;
+      border-radius: 12px;
+      border: 2px dashed #4F46E5;
+    }
+
+    .cta p {
+      margin: 0;
+      font-size: 16px;
+      color: #4F46E5;
+      font-weight: 600;
+    }
+
+    code {
+      background: #1F2937;
+      color: #10B981;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 14px;
+      font-family: 'Monaco', 'Courier New', monospace;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Echo Widget Demo</h1>
+    <p>
+      Experience our AI-powered customer support widget. Click the chat icon in the bottom-right corner to get started!
+    </p>
+
+    <div class="features">
+      <div class="feature">
+        <h3>Real-time Chat</h3>
+        <p>Instant responses powered by advanced AI models</p>
+      </div>
+      <div class="feature">
+        <h3>Smart Context</h3>
+        <p>RAG-powered knowledge base for accurate answers</p>
+      </div>
+      <div class="feature">
+        <h3>Human Escalation</h3>
+        <p>Seamlessly transfer to support agents when needed</p>
+      </div>
+      <div class="feature">
+        <h3>Multi-model</h3>
+        <p>Supports OpenAI, Anthropic, Gemini, and Grok</p>
+      </div>
+    </div>
+
+    <div class="cta">
+      <p>
+        Widget loaded from <code>dist/embed.js</code> &mdash; Under 20 kB gzipped!
+      </p>
+    </div>
+  </div>
+
+  <script>
+    (function(w,d,s,o,f,js,fjs){
+      w['EchoWidget']=o;w[o]=w[o]||function(){(w[o].q=w[o].q||[]).push(arguments)};
+      js=d.createElement(s),fjs=d.getElementsByTagName(s)[0];
+      js.id=o;js.src=f;js.async=1;fjs.parentNode.insertBefore(js,fjs);
+    }(window,document,'script','echo','../dist/embed.js'));
+
+    echo('init', {
+      tenantId: 'demo-tenant-123',
+      theme: 'auto',
+      position: 'bottom-right',
+      primaryColor: '#4F46E5',
+      brandName: 'Echo Support',
+      welcomeMessage: 'Hi! How can we help you today?',
+      placeholder: 'Type your message...',
+      showBranding: true,
+    });
+  </script>
+</body>
+</html>

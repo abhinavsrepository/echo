@@ -1,0 +1,57 @@
+{
+  "family": "echo-production-dashboard",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/echo-production-task",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/echo-production-task-execution",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "containerDefinitions": [
+    {
+      "name": "dashboard",
+      "image": "ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/echo-dashboard:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 3000,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {
+          "name": "NODE_ENV",
+          "value": "production"
+        },
+        {
+          "name": "PORT",
+          "value": "3000"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "CONVEX_DEPLOYMENT",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:echo/production/convex-deployment"
+        },
+        {
+          "name": "CLERK_SECRET_KEY",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:echo/production/clerk-secret-key"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/echo-production-dashboard",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      }
+    }
+  ]
+}

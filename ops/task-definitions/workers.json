@@ -1,0 +1,44 @@
+{
+  "family": "echo-production-workers",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/echo-production-task",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/echo-production-task-execution",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "containerDefinitions": [
+    {
+      "name": "workers",
+      "image": "ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/echo-workers:latest",
+      "essential": true,
+      "environment": [
+        {
+          "name": "NODE_ENV",
+          "value": "production"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "REDIS_URL",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:echo/production/redis-url"
+        },
+        {
+          "name": "OPENAI_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:echo/production/openai-api-key"
+        },
+        {
+          "name": "PINECONE_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:echo/production/pinecone-api-key"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/echo-production-workers",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "name": "@echo/workers",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@echo/shared": "workspace:*",
+    "bullmq": "^5.34.1",
+    "ioredis": "^5.4.2",
+    "@pinecone-database/pinecone": "^4.0.0",
+    "openai": "^4.77.0",
+    "pdf-parse": "^1.1.1",
+    "marked": "^15.0.4",
+    "aws-sdk": "^2.1692.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/pdf-parse": "^1.1.4",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

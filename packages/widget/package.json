@@ -1,0 +1,56 @@
+{
+  "name": "@echo/widget",
+  "version": "1.0.0",
+  "private": false,
+  "type": "module",
+  "main": "./dist/embed.js",
+  "module": "./dist/embed.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/embed.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./react": {
+      "import": "./dist/react.js",
+      "types": "./dist/react.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup && npm run check-size",
+    "check-size": "node -e \"const fs=require('fs');const {gzipSync}=require('zlib');const size=gzipSync(fs.readFileSync('dist/embed.js')).length;console.log('Gzipped size:',size,'bytes');if(size>20480){console.error('ERROR: Bundle exceeds 20 kB limit');process.exit(1)}\"",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@echo/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.1",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.6",
+    "@types/react-dom": "^19.0.2",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "extends": "../shared/tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2021",
+    "lib": ["ES2021"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "paths": {
+      "@echo/shared": ["../shared/src"],
+      "@echo/shared/*": ["../shared/src/*"]
+    }
+  },
+  "include": ["convex/**/*", "../shared/src/**/*"]
+}

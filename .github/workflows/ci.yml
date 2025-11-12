@@ -1,0 +1,205 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: 22
+  PNPM_VERSION: 9.15.0
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run linter
+        run: pnpm lint
+
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run type check
+        run: pnpm typecheck
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        package: [shared, widget, convex, workers]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run tests
+        run: pnpm --filter @echo/${{ matrix.package }} test -- --coverage
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./packages/${{ matrix.package }}/coverage/coverage-final.json
+          flags: ${{ matrix.package }}
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  test-e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        suite: [dashboard, widget]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright
+        if: matrix.suite == 'widget'
+        run: pnpm --filter @echo/widget exec playwright install --with-deps
+
+      - name: Run Dashboard E2E
+        if: matrix.suite == 'dashboard'
+        run: pnpm --filter @echo/dashboard cypress:run
+        env:
+          CYPRESS_BASE_URL: http://localhost:3000
+
+      - name: Run Widget E2E
+        if: matrix.suite == 'widget'
+        run: pnpm --filter @echo/widget playwright test
+
+      - name: Upload artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.suite }}-test-results
+          path: |
+            packages/${{ matrix.suite }}/cypress/videos
+            packages/${{ matrix.suite }}/cypress/screenshots
+            packages/${{ matrix.suite }}/playwright-report
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [lint, typecheck, test]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm build
+        env:
+          NEXT_PUBLIC_CONVEX_URL: ${{ secrets.CONVEX_URL }}
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+
+      - name: Check widget bundle size
+        run: |
+          SIZE=$(stat -c%s packages/widget/dist/embed.js)
+          GZIP_SIZE=$(gzip -c packages/widget/dist/embed.js | wc -c)
+          echo "Bundle size: $SIZE bytes"
+          echo "Gzipped size: $GZIP_SIZE bytes"
+          if [ $GZIP_SIZE -gt 20480 ]; then
+            echo "Error: Widget bundle exceeds 20 kB gzipped"
+            exit 1
+          fi
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: |
+            packages/*/dist
+            packages/dashboard/.next
+          retention-days: 7
+
+      - name: Upload source maps to Sentry
+        if: github.ref == 'refs/heads/main'
+        run: |
+          npx @sentry/cli releases new ${{ github.sha }}
+          npx @sentry/cli releases files ${{ github.sha }} upload-sourcemaps packages/dashboard/.next
+          npx @sentry/cli releases finalize ${{ github.sha }}
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
